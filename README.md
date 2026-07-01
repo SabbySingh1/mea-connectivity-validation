@@ -15,16 +15,28 @@ Validation pipeline for spike connectivity inference methods on simulated HD-MEA
 
 All methods are loaded from the [spycon](https://github.com/christiando/spycon) package. The `__init__.py` is bypassed using `importlib` to avoid importing `TE_IDTXL` which requires `idtxl` (fails to build on most systems).
 
+The algorithm source files (`sci_glmcc.py`, `sci_sccg.py`, `sci_dsttc.py`, `sci_pyinform.py`, `spycon_inference.py`, `spycon_result.py`) are included in this repo directly from the spycon package **without modification**. No changes were made to the algorithm implementations. The only tuning we applied was passing `tau=[10e-3, 10e-3]` as a runtime parameter to GLMCC in our validation scripts — this overrides spycon's default of `tau=1ms`. The source files themselves are unmodified originals.
+
 ---
 
 ## Key Findings
 
 ### On the provided simulated dataset (`trial_135_rerun_300s`)
-- Ground truth connections had delays of **0.1–1345ms** (majority 200–1345ms)
-- GLMCC, sCCG detect within a ±50ms CCG window → **completely blind to 200–1345ms connections**
-- GLMCC: 5,317 detections (2.3%) — mostly false positives from burst correlations
-- sCCG: 0 detections — flat CCG within ±50ms window
-- DSTTC: still running (very slow on 480 units / 114,960 pairs)
+- 480 units, 114,960 pairs, 90,190 ground truth connections
+- Ground truth connection delays: **0.1–1345ms** (96,042 connections in 200–1345ms range)
+- This dataset models a large-scale network with long axonal conduction delays — not a local MEA culture. Real biological monosynaptic delays are 1–5ms; 500ms delays would require axonal conduction at 0.002 m/s which is biologically impossible.
+
+| Method | Detected | Precision | Recall | F1 | Why |
+|--------|----------|-----------|--------|----|-----|
+| GLMCC | 5,317 (2.3%) | 0.409 | 0.024 | 0.046 | Detects random noise near 3ms lag, not real peaks |
+| sCCG | 0 (0.0%) | 0.000 | 0.000 | 0.000 | CCG window ±50ms never sees 200–1345ms peaks |
+| DSTTC | pending | — | — | — | Still running (slow on 114,960 pairs) |
+
+**Why sCCG detected 0:** sCCG builds a CCG histogram covering only ±50ms lag. All ground truth connections fire with delays of 200–1345ms — the synaptic peak appears at those lags, completely outside the computed window. Within ±50ms the CCG is flat, so nothing exceeds the background threshold.
+
+**Why GLMCC got 5,317 despite the same ±50ms window:** GLMCC fits a GLM kernel anchored at 3ms. Even on a flat CCG, random fluctuations near 3ms occasionally make the kernel fit look statistically significant. With 229,920 pairs tested at alpha=0.001, thousands of noise-driven detections accumulate. The 2,174 TPs are coincidental — connections that happened to have burst-correlated activity near 3ms, not real synaptic peaks.
+
+**Neither method is detecting real connections in this dataset.** The signal exists at 200–1345ms; both methods only look within ±50ms.
 
 ### On HD-MEA simulated dataset (Brian2, matched to CDKL5)
 - 129 units, real XY positions, 80/20 E/I, distance-dependent connectivity
