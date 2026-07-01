@@ -132,10 +132,3 @@ CDKL5 is a channelopathy that disrupts inhibitory interneuron function, directly
 DSTTC and sCCG detect functional co-firing — useful for network-level analysis but cannot distinguish direct synapses from shared common input.
 
 ---
-
-## Real Data Path
-```
-/mnt/disk15tb/mmpatil/MEA_Analysis/AnalyzedData/CDKL5_R59X_PS/241101/M08018/Network/well000/
-```
-- `spike_times.npy` — dict: {unit_id: [spike_times_in_seconds]}
-- `metrics_curated.xlsx` — unit quality metrics including loc_x, loc_y (μm)
