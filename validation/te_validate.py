@@ -1,11 +1,30 @@
 #!/usr/bin/env python3
+"""
+Run Transfer Entropy (TE) on a simulated or real spike dataset and evaluate against ground truth.
+
+TE measures information flow from one spike train to another by asking: does knowing
+the history of neuron A improve prediction of neuron B's next spike beyond B's own
+history alone? Unlike CCG-based methods, TE is model-free and can detect non-linear
+dependencies, but requires many more spikes to achieve the same statistical power.
+
+Usage:
+    python validation/te_validate.py
+    python validation/te_validate.py --spikes path/to/spikes.npz --conn path/to/conn.npz
+
+Spike .npz must contain: spkt_s (spike times in seconds), spkid (unit IDs)
+Connectivity .npz must contain: pre_gid, post_gid, delay (ms)
+
+Note: TE is implemented via pyinform and is slow on large datasets (similar scale
+to DSTTC). Use on datasets with <100 units or short recordings.
+"""
 import importlib.util, sys, itertools, multiprocessing as mp
 from itertools import repeat
 from pathlib import Path
 import numpy as np
 from scipy.stats import norm
-
 import argparse
+
+# ── Locate repo root and load spycon files bundled in this repo ───────────────
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 parser = argparse.ArgumentParser()
@@ -33,23 +52,27 @@ def _load_class(modname, filename, classname):
 
 TE_PyInform = _load_class("sci_pyinform", "sci_pyinform.py", "TE_PyInform")
 
+# ── Load spike data ───────────────────────────────────────────────────────────
 spk     = np.load(SPIKES_PATH, allow_pickle=True)
 times_s = spk["spkt_s"].astype(float)
 ids     = spk["spkid"].astype(int)
 order   = np.argsort(times_s)
 times_s, ids = times_s[order], ids[order]
 
+# ── Load ground truth connectivity ────────────────────────────────────────────
 conn     = np.load(CONN_PATH, allow_pickle=True)
 pre_gt   = conn["pre_gid"].astype(int)
 post_gt  = conn["post_gid"].astype(int)
 delay_gt = conn["delay"].astype(float)
 
+# Keep only the shortest delay per pair (some pairs have multiple connections)
 gt_pairs = {}
 for p, q, d in zip(pre_gt, post_gt, delay_gt):
     key = (p, q)
     if key not in gt_pairs or d < gt_pairs[key]:
         gt_pairs[key] = d
 
+# Filter to units firing at least 0.5 Hz (too-sparse units give unreliable TE estimates)
 duration    = times_s[-1] - times_s[0]
 all_nodes   = np.unique(ids)
 valid_nodes = [n for n in all_nodes if np.sum(ids == n) / duration >= 0.5]
