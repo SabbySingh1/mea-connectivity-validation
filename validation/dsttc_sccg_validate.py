@@ -1,35 +1,66 @@
 #!/usr/bin/env python3
-import importlib.util, sys, itertools, multiprocessing as mp
+"""
+Run sCCG or DSTTC on a simulated or real spike dataset and evaluate against ground truth.
+
+Usage:
+    python validation/dsttc_sccg_validate.py sccg
+    python validation/dsttc_sccg_validate.py dsttc
+    python validation/dsttc_sccg_validate.py sccg --spikes path/to/spikes.npz --conn path/to/conn.npz
+
+Note: DSTTC is O(N^2 * spikes^2) — only practical for <100 units. On large datasets
+it may run for many hours. sCCG is fast on any dataset size.
+
+Spike .npz must contain: spkt_s (spike times in seconds), spkid (unit IDs)
+Connectivity .npz must contain: pre_gid, post_gid, delay (ms)
+"""
+import argparse, importlib.util, sys, itertools, multiprocessing as mp
 from itertools import repeat
 from pathlib import Path
 import numpy as np
 from scipy.stats import norm
 
-SPIKES_PATH = Path("/private/tmp/sim_hdmea_spikes.npz")
-CONN_PATH   = Path("/private/tmp/sim_hdmea_connectivity.npz")
-METHOD      = sys.argv[1]  # "dsttc" or "sccg"
+# ── Locate repo root and load spycon files bundled in this repo ───────────────
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
-_spycon_root = Path("/private/tmp/sandbox_venv_x86/lib/python3.9/site-packages/spycon")
-for _mod_name in ["spycon_result", "spycon_inference"]:
-    _spec = importlib.util.spec_from_file_location(f"spycon.{_mod_name}", _spycon_root / f"{_mod_name}.py")
-    _mod = importlib.util.module_from_spec(_spec)
-    sys.modules[f"spycon.{_mod_name}"] = _mod
-    _spec.loader.exec_module(_mod)
+def _load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod  = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+_load_module("spycon.spycon_result",    REPO_ROOT / "spycon_result.py")
+_load_module("spycon.spycon_inference", REPO_ROOT / "spycon_inference.py")
 
 def _load_class(modname, filename, classname):
-    spec = importlib.util.spec_from_file_location(modname, _spycon_root / "coninf" / filename)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[modname] = mod
-    spec.loader.exec_module(mod)
+    mod = _load_module(modname, REPO_ROOT / filename)
     return getattr(mod, classname)
 
+# ── CLI ───────────────────────────────────────────────────────────────────────
+parser = argparse.ArgumentParser()
+parser.add_argument("method", choices=["sccg", "dsttc"])
+parser.add_argument("--spikes",  default=str(REPO_ROOT / "data" / "sim_hdmea_burst_spikes.npz"))
+parser.add_argument("--conn",    default=str(REPO_ROOT / "data" / "sim_hdmea_burst_connectivity.npz"))
+parser.add_argument("--workers", type=int, default=8)
+args = parser.parse_args()
+
+METHOD      = args.method
+SPIKES_PATH = Path(args.spikes)
+CONN_PATH   = Path(args.conn)
+
+if not SPIKES_PATH.exists():
+    print(f"ERROR: spikes file not found: {SPIKES_PATH}")
+    print("Run simulation/generate_brian2_hdmea_burst.py first to generate data.")
+    sys.exit(1)
+
 if METHOD == "dsttc":
-    Cls = _load_class("sci_dsttc", "sci_dsttc.py", "directed_STTC")
+    Cls    = _load_class("sci_dsttc", "sci_dsttc.py", "directed_STTC")
     PARAMS = {"delta_t": 7e-3, "alpha": 1e-3}
 else:
-    Cls = _load_class("sci_sccg", "sci_sccg.py", "Smoothed_CCG")
+    Cls    = _load_class("sci_sccg", "sci_sccg.py", "Smoothed_CCG")
     PARAMS = {"binsize": 0.4e-3, "ccg_tau": 50e-3, "alpha": 1e-3}
 
+# ── Load data ─────────────────────────────────────────────────────────────────
 spk     = np.load(SPIKES_PATH, allow_pickle=True)
 times_s = spk["spkt_s"].astype(float)
 ids     = spk["spkid"].astype(int)
@@ -55,18 +86,21 @@ pairs       = list(itertools.combinations(valid_nodes, 2))
 print(f"[{METHOD.upper()}] Units: {len(valid_nodes)}, Pairs: {len(pairs)}")
 print(f"[{METHOD.upper()}] GT connections: {len(gt_pairs)}")
 
+if METHOD == "dsttc" and len(valid_nodes) > 150:
+    print(f"WARNING: DSTTC on {len(valid_nodes)} units may take many hours. Consider using sCCG instead.")
+
 model = Cls(params=PARAMS)
 
+# ── Run ───────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
-    print(f"[{METHOD.upper()}] Running...")
-    with mp.Pool(8) as pool:
+    print(f"[{METHOD.upper()}] Running (workers={args.workers})...")
+    with mp.Pool(args.workers) as pool:
         raw = pool.starmap(model._test_connection_pair,
                            zip(repeat(times_s), repeat(ids), pairs))
 
     threshold = norm.ppf(1 - 0.5 * PARAMS["alpha"])
-    detected = set()
+    detected  = set()
     for (p, q), result in zip(pairs, raw):
-        # result is (stat_AB, z_AB, stat_BA, z_BA, pair) for both methods
         z_AB = result[1]
         z_BA = result[3]
         if z_AB > threshold:
