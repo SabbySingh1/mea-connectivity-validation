@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-import importlib.util, sys, itertools, multiprocessing as mp
+"""
+Run GLMCC on the original trial_135 simulated dataset and plot GT vs detected.
+
+Usage:
+    python validation/glmcc_sim_validate_original.py \
+        --spikes path/to/spikes.npz --conn path/to/conn.npz
+
+Note: the original trial_135 dataset has ground truth delays of 200-1345ms which
+fall outside GLMCC's ±50ms search window, so results will be poor by design.
+"""
+import argparse, importlib.util, sys, itertools, multiprocessing as mp
 from itertools import repeat
 from pathlib import Path
 import numpy as np
@@ -8,25 +18,34 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy.stats import norm
 
-SPIKES_PATH = Path("/Users/sabadnoorsingh/Downloads/trial_135_rerun_300s_spikes.npz")
-CONN_PATH   = Path("/Users/sabadnoorsingh/Downloads/trial_135_rerun_300s_connectivity.npz")
-OUT_DIR     = Path("/private/tmp")
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
-_spycon_root = Path(importlib.util.find_spec("spycon").origin).parent
-for _mod_name in ["spycon_result", "spycon_inference"]:
-    _spec = importlib.util.spec_from_file_location(f"spycon.{_mod_name}", _spycon_root / f"{_mod_name}.py")
-    _mod = importlib.util.module_from_spec(_spec)
-    sys.modules[f"spycon.{_mod_name}"] = _mod
-    _spec.loader.exec_module(_mod)
+def _load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod  = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+_load_module("spycon.spycon_result",    REPO_ROOT / "spycon_result.py")
+_load_module("spycon.spycon_inference", REPO_ROOT / "spycon_inference.py")
 
 def _load_class(modname, filename, classname):
-    spec = importlib.util.spec_from_file_location(modname, _spycon_root / "coninf" / filename)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[modname] = mod
-    spec.loader.exec_module(mod)
+    mod = _load_module(modname, REPO_ROOT / filename)
     return getattr(mod, classname)
 
 GLMCC = _load_class("sci_glmcc", "sci_glmcc.py", "GLMCC")
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--spikes",  required=True, help="Path to spikes .npz file")
+parser.add_argument("--conn",    required=True, help="Path to connectivity .npz file")
+parser.add_argument("--workers", type=int, default=4)
+args = parser.parse_args()
+
+SPIKES_PATH = Path(args.spikes)
+CONN_PATH   = Path(args.conn)
+OUT_DIR     = REPO_ROOT / "data"
+OUT_DIR.mkdir(exist_ok=True)
 
 spk     = np.load(SPIKES_PATH, allow_pickle=True)
 times_s = spk["spkt_s"].astype(float)
@@ -59,8 +78,8 @@ PARAMS = {"binsize": 1e-3, "ccg_tau": 50e-3, "syn_delay": 3e-3,
 glmcc = GLMCC(params=PARAMS)
 
 if __name__ == "__main__":
-    print("Running GLMCC on all pairs...")
-    with mp.Pool(4) as pool:
+    print(f"Running GLMCC (workers={args.workers})...")
+    with mp.Pool(args.workers) as pool:
         raw = pool.starmap(glmcc._test_connection_pair,
                            zip(repeat(times_ms), repeat(ids), pairs))
 
@@ -74,10 +93,10 @@ if __name__ == "__main__":
 
     print(f"GLMCC detected: {len(detected)} ({100*len(detected)/(len(pairs)*2):.1f}%)")
 
-    valid_set   = set(valid_nodes)
-    gt_valid    = {k: v for k, v in gt_pairs.items() if k[0] in valid_set and k[1] in valid_set}
-    gt_set      = set(gt_valid.keys())
-    det_set     = set(detected.keys())
+    valid_set = set(valid_nodes)
+    gt_valid  = {k: v for k, v in gt_pairs.items() if k[0] in valid_set and k[1] in valid_set}
+    gt_set    = set(gt_valid.keys())
+    det_set   = set(detected.keys())
 
     TP = gt_set & det_set
     FP = det_set - gt_set
@@ -101,7 +120,6 @@ if __name__ == "__main__":
         tpr = len(tp_bin) / len(gt_bin) if gt_bin else 0
         print(f"  {lo}-{hi}ms: {len(tp_bin)}/{len(gt_bin)} (TPR={tpr:.2f})")
 
-    # Plot GT vs GLMCC
     node_idx = {uid: i for i, uid in enumerate(valid_nodes)}
     n = len(valid_nodes)
     gt_mat  = np.zeros((n, n))
@@ -114,7 +132,7 @@ if __name__ == "__main__":
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     axes[0].imshow(gt_mat, cmap="Reds", vmin=0, vmax=1, interpolation="nearest", aspect="auto")
-    axes[0].set_title(f"Ground Truth\n{len(gt_set)} connections (all delays)", fontsize=11)
+    axes[0].set_title(f"Ground Truth\n{len(gt_set)} connections", fontsize=11)
     axes[0].set_xlabel("Post-synaptic unit index")
     axes[0].set_ylabel("Pre-synaptic unit index")
 
@@ -126,7 +144,7 @@ if __name__ == "__main__":
     axes[1].set_ylabel("Pre-synaptic unit index")
     plt.colorbar(im, ax=axes[1], label="Weight (+=exc, -=inh)")
 
-    fig.suptitle(f"GLMCC vs Ground Truth — Simulated Data\n"
+    fig.suptitle(f"GLMCC vs Ground Truth\n"
                  f"TP={len(TP)}  FP={len(FP)}  FN={len(FN)}  "
                  f"Precision={precision:.2f}  Recall={recall:.2f}  F1={f1:.2f}",
                  fontsize=12, y=1.02)

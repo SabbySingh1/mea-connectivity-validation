@@ -5,21 +5,30 @@ from pathlib import Path
 import numpy as np
 from scipy.stats import norm
 
-SPIKES_PATH = Path("/Users/sabadnoorsingh/Downloads/trial_135_rerun_300s_spikes.npz")
-CONN_PATH   = Path("/Users/sabadnoorsingh/Downloads/trial_135_rerun_300s_connectivity.npz")
+import argparse
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
-_spycon_root = Path(importlib.util.find_spec("spycon").origin).parent
-for _mod_name in ["spycon_result", "spycon_inference"]:
-    _spec = importlib.util.spec_from_file_location(f"spycon.{_mod_name}", _spycon_root / f"{_mod_name}.py")
-    _mod = importlib.util.module_from_spec(_spec)
-    sys.modules[f"spycon.{_mod_name}"] = _mod
-    _spec.loader.exec_module(_mod)
+parser = argparse.ArgumentParser()
+parser.add_argument("--spikes",  default=str(REPO_ROOT / "data" / "sim_hdmea_burst_spikes.npz"))
+parser.add_argument("--conn",    default=str(REPO_ROOT / "data" / "sim_hdmea_burst_connectivity.npz"))
+parser.add_argument("--workers", type=int, default=4)
+args = parser.parse_args()
+
+SPIKES_PATH = Path(args.spikes)
+CONN_PATH   = Path(args.conn)
+
+def _load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    mod  = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+_load_module("spycon.spycon_result",    REPO_ROOT / "spycon_result.py")
+_load_module("spycon.spycon_inference", REPO_ROOT / "spycon_inference.py")
 
 def _load_class(modname, filename, classname):
-    spec = importlib.util.spec_from_file_location(modname, _spycon_root / "coninf" / filename)
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[modname] = mod
-    spec.loader.exec_module(mod)
+    mod = _load_module(modname, REPO_ROOT / filename)
     return getattr(mod, classname)
 
 TE_PyInform = _load_class("sci_pyinform", "sci_pyinform.py", "TE_PyInform")

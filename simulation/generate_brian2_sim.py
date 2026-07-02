@@ -18,7 +18,8 @@ b2.start_scope()
 b2.set_device('runtime')
 b2.defaultclock.dt = 0.1 * b2.ms
 
-OUT_DIR  = Path("/private/tmp")
+OUT_DIR  = Path(__file__).resolve().parent.parent / "data"
+OUT_DIR.mkdir(exist_ok=True)
 RNG      = np.random.default_rng(42)
 
 # --- network parameters ---

@@ -9,7 +9,8 @@ Outputs:
 import numpy as np
 from pathlib import Path
 
-OUT_DIR = Path("/private/tmp")
+OUT_DIR = Path(__file__).resolve().parent.parent / "data"
+OUT_DIR.mkdir(exist_ok=True)
 RNG = np.random.default_rng(42)
 
 # --- match real data stats ---
