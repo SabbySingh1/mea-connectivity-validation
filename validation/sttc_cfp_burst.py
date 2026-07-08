@@ -257,7 +257,31 @@ print(f"GT: {len(gt_pairs)}  Detected: {len(detected_cfp)}")
 print(f"TP: {len(TP2)}  FP: {len(FP2)}  FN: {len(FN2)}")
 print(f"Precision: {prec2:.3f}  Recall: {rec2:.3f}  F1: {f12:.3f}", flush=True)
 
+sttc_matrix = np.zeros((N, N), dtype=np.int8)
+for pre, post in detected_sttc:
+    pi = np.where(valid_nodes == pre)[0]
+    pj = np.where(valid_nodes == post)[0]
+    if len(pi) and len(pj):
+        sttc_matrix[pi[0], pj[0]] = 1
+
+cfp_matrix = np.zeros((N, N), dtype=np.int8)
+for pre, post in detected_cfp:
+    pi = np.where(valid_nodes == pre)[0]
+    pj = np.where(valid_nodes == post)[0]
+    if len(pi) and len(pj):
+        cfp_matrix[pi[0], pj[0]] = 1
+
 np.savez("/private/tmp/sttc_cfp_burst_results.npz",
          sttc_f1=f1, sttc_prec=prec, sttc_rec=rec,
-         cfp_f1=f12, cfp_prec=prec2, cfp_rec=rec2)
+         sttc_conn_matrix=sttc_matrix,
+         sttc_detected_pairs=np.array(sorted(detected_sttc), dtype=np.int32),
+         sttc_tp_pairs=np.array(sorted(TP), dtype=np.int32),
+         sttc_fp_pairs=np.array(sorted(FP), dtype=np.int32),
+         sttc_fn_pairs=np.array(sorted(FN), dtype=np.int32),
+         cfp_f1=f12, cfp_prec=prec2, cfp_rec=rec2,
+         cfp_conn_matrix=cfp_matrix,
+         cfp_detected_pairs=np.array(sorted(detected_cfp), dtype=np.int32),
+         cfp_tp_pairs=np.array(sorted(TP2), dtype=np.int32),
+         cfp_fp_pairs=np.array(sorted(FP2), dtype=np.int32),
+         cfp_fn_pairs=np.array(sorted(FN2), dtype=np.int32))
 print("\nDone.", flush=True)

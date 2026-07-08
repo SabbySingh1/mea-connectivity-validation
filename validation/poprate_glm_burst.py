@@ -143,7 +143,31 @@ print(f"GT: {len(gt_pairs)}  Detected: {len(detected_pearson)}")
 print(f"TP: {len(TP2)}  FP: {len(FP2)}  FN: {len(FN2)}")
 print(f"Precision: {prec2:.3f}  Recall: {rec2:.3f}  F1: {f12:.3f}", flush=True)
 
+lasso_matrix = np.zeros((N, N), dtype=np.int8)
+for pre, post in detected_lasso:
+    pi = np.where(valid_nodes == pre)[0]
+    pj = np.where(valid_nodes == post)[0]
+    if len(pi) and len(pj):
+        lasso_matrix[pi[0], pj[0]] = 1
+
+pearson_matrix = np.zeros((N, N), dtype=np.int8)
+for pre, post in detected_pearson:
+    pi = np.where(valid_nodes == pre)[0]
+    pj = np.where(valid_nodes == post)[0]
+    if len(pi) and len(pj):
+        pearson_matrix[pi[0], pj[0]] = 1
+
 np.savez("/private/tmp/poprate_glm_burst_results.npz",
          lasso_f1=f1, lasso_prec=prec, lasso_rec=rec,
-         pearson_resid_f1=f12, pearson_resid_prec=prec2, pearson_resid_rec=rec2)
+         lasso_conn_matrix=lasso_matrix,
+         lasso_detected_pairs=np.array(sorted(detected_lasso), dtype=np.int32),
+         lasso_tp_pairs=np.array(sorted(TP), dtype=np.int32),
+         lasso_fp_pairs=np.array(sorted(FP), dtype=np.int32),
+         lasso_fn_pairs=np.array(sorted(FN), dtype=np.int32),
+         pearson_resid_f1=f12, pearson_resid_prec=prec2, pearson_resid_rec=rec2,
+         pearson_conn_matrix=pearson_matrix,
+         pearson_detected_pairs=np.array(sorted(detected_pearson), dtype=np.int32),
+         pearson_tp_pairs=np.array(sorted(TP2), dtype=np.int32),
+         pearson_fp_pairs=np.array(sorted(FP2), dtype=np.int32),
+         pearson_fn_pairs=np.array(sorted(FN2), dtype=np.int32))
 print("\nDone.", flush=True)

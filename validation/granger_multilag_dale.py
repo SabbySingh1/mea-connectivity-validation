@@ -119,7 +119,25 @@ print(f"GT: {len(gt_pairs)}  Detected: {len(detected_multilag)}")
 print(f"TP: {len(TP2)}  FP: {len(FP2)}  FN: {len(FN2)}")
 print(f"Precision: {prec2:.3f}  Recall: {rec2:.3f}  F1: {f12:.3f}", flush=True)
 
+granger_matrix = np.zeros((N, N), dtype=np.int8)
+for i, j in detected_granger:
+    granger_matrix[i, j] = 1
+
+multilag_matrix = np.zeros((N, N), dtype=np.int8)
+for i, j in detected_multilag:
+    multilag_matrix[i, j] = 1
+
 np.savez("/private/tmp/granger_multilag_dale_results.npz",
          granger_f1=f1, granger_prec=prec, granger_rec=rec,
-         multilag_f1=f12, multilag_prec=prec2, multilag_rec=rec2)
+         granger_conn_matrix=granger_matrix,
+         granger_detected_pairs=np.array(sorted(detected_granger), dtype=np.int32),
+         granger_tp_pairs=np.array(sorted(TP), dtype=np.int32),
+         granger_fp_pairs=np.array(sorted(FP), dtype=np.int32),
+         granger_fn_pairs=np.array(sorted(FN), dtype=np.int32),
+         multilag_f1=f12, multilag_prec=prec2, multilag_rec=rec2,
+         multilag_conn_matrix=multilag_matrix,
+         multilag_detected_pairs=np.array(sorted(detected_multilag), dtype=np.int32),
+         multilag_tp_pairs=np.array(sorted(TP2), dtype=np.int32),
+         multilag_fp_pairs=np.array(sorted(FP2), dtype=np.int32),
+         multilag_fn_pairs=np.array(sorted(FN2), dtype=np.int32))
 print("\nDone.", flush=True)

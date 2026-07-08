@@ -61,7 +61,24 @@ print(f"GT: {len(gt_pairs)}  Detected: {len(detected)}")
 print(f"TP: {len(TP)}  FP: {len(FP)}  FN: {len(FN)}")
 print(f"Precision: {prec:.3f}  Recall: {rec:.3f}  F1: {f1:.3f}", flush=True)
 
+# Build full N×N connectivity matrix (1=detected, 0=not)
+conn_matrix = np.zeros((N, N), dtype=np.int8)
+detected_list = np.array(sorted(detected), dtype=np.int32)
+tp_list = np.array(sorted(TP), dtype=np.int32)
+fp_list = np.array(sorted(FP), dtype=np.int32)
+fn_list = np.array(sorted(FN), dtype=np.int32)
+node_idx = {n: i for i, n in enumerate(sorted({n for pair in detected for n in pair}))}
+for pre, post in detected:
+    if pre in node_idx and post in node_idx:
+        conn_matrix[node_idx[pre], node_idx[post]] = 1
+
 np.savez("/private/tmp/lasso_var_dale_results.npz",
-         A_hat=A_hat, precision=prec, recall=rec, f1=f1,
+         A_hat=A_hat,
+         conn_matrix=conn_matrix,
+         detected_pairs=detected_list,
+         tp_pairs=tp_list,
+         fp_pairs=fp_list,
+         fn_pairs=fn_list,
+         precision=prec, recall=rec, f1=f1,
          TP=len(TP), FP=len(FP), FN=len(FN))
 print("Done.", flush=True)

@@ -76,7 +76,17 @@ print(f"GT: {len(gt_pairs)}  Detected: {len(detected)}")
 print(f"TP: {len(TP)}  FP: {len(FP)}  FN: {len(FN)}")
 print(f"Precision: {prec:.3f}  Recall: {rec:.3f}  F1: {f1:.3f}", flush=True)
 
+conn_matrix = np.zeros((N, N), dtype=np.int8)
+for i, j in detected:
+    conn_matrix[i, j] = 1
+
 np.savez("/private/tmp/stability_lasso_dale_results.npz",
-         A_stable=A_stable, precision=prec, recall=rec, f1=f1,
+         A_stable=A_stable,
+         conn_matrix=conn_matrix,
+         detected_pairs=np.array(sorted(detected), dtype=np.int32),
+         tp_pairs=np.array(sorted(TP), dtype=np.int32),
+         fp_pairs=np.array(sorted(FP), dtype=np.int32),
+         fn_pairs=np.array(sorted(FN), dtype=np.int32),
+         precision=prec, recall=rec, f1=f1,
          TP=len(TP), FP=len(FP), FN=len(FN))
 print("Done.", flush=True)

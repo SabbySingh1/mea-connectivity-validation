@@ -98,7 +98,26 @@ print(f"GT: {len(gt_pairs)}  Detected: {len(detected_sttc)}")
 print(f"TP: {len(TP2)}  FP: {len(FP2)}  FN: {len(FN2)}")
 print(f"Precision: {prec2:.3f}  Recall: {rec2:.3f}  F1: {f12:.3f}", flush=True)
 
+# Connectivity matrices
+pearson_matrix = np.zeros((N, N), dtype=np.int8)
+for i, j in detected_pearson:
+    pearson_matrix[i, j] = 1
+
+sttc_matrix = np.zeros((N, N), dtype=np.int8)
+for i, j in detected_sttc:
+    sttc_matrix[i, j] = 1
+
 np.savez("/private/tmp/func_conn_dale_fdr_results.npz",
          pearson_f1=f1, pearson_prec=prec, pearson_rec=rec,
-         sttc_f1=f12, sttc_prec=prec2, sttc_rec=rec2)
+         pearson_conn_matrix=pearson_matrix,
+         pearson_detected_pairs=np.array(sorted(detected_pearson), dtype=np.int32),
+         pearson_tp_pairs=np.array(sorted(TP), dtype=np.int32),
+         pearson_fp_pairs=np.array(sorted(FP), dtype=np.int32),
+         pearson_fn_pairs=np.array(sorted(FN), dtype=np.int32),
+         sttc_f1=f12, sttc_prec=prec2, sttc_rec=rec2,
+         sttc_conn_matrix=sttc_matrix,
+         sttc_detected_pairs=np.array(sorted(detected_sttc), dtype=np.int32),
+         sttc_tp_pairs=np.array(sorted(TP2), dtype=np.int32),
+         sttc_fp_pairs=np.array(sorted(FP2), dtype=np.int32),
+         sttc_fn_pairs=np.array(sorted(FN2), dtype=np.int32))
 print("\nDone.", flush=True)

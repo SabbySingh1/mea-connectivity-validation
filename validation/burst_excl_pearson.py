@@ -162,7 +162,18 @@ print(f"GT: {len(gt_valid)}  Detected: {len(detected)}")
 print(f"TP: {len(TP)}  FP: {len(FP)}  FN: {len(FN)}")
 print(f"Precision: {prec:.3f}  Recall: {rec:.3f}  F1: {f1:.3f}")
 
+conn_matrix = np.zeros((len(valid_nodes), len(valid_nodes)), dtype=np.int8)
+node_idx2 = {n: i for i, n in enumerate(valid_nodes)}
+for pre, post in detected:
+    if pre in node_idx2 and post in node_idx2:
+        conn_matrix[node_idx2[pre], node_idx2[post]] = 1
+
 np.savez(args.out, precision=prec, recall=rec, f1=f1,
          n_gt=len(gt_valid), n_detected=len(detected),
-         TP=len(TP), FP=len(FP), FN=len(FN))
+         TP=len(TP), FP=len(FP), FN=len(FN),
+         conn_matrix=conn_matrix,
+         detected_pairs=np.array(sorted(detected), dtype=np.int32),
+         tp_pairs=np.array(sorted(TP), dtype=np.int32),
+         fp_pairs=np.array(sorted(FP), dtype=np.int32),
+         fn_pairs=np.array(sorted(FN), dtype=np.int32))
 print(f"Saved to {args.out}", flush=True)

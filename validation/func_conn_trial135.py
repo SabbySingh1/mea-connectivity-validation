@@ -129,7 +129,31 @@ print(f"GT: {len(gt_valid)}  Detected: {len(detected_sttc)}")
 print(f"TP: {len(TP2)}  FP: {len(FP2)}  FN: {len(FN2)}")
 print(f"Precision: {prec2:.3f}  Recall: {rec2:.3f}  F1: {f12:.3f}", flush=True)
 
+pearson_matrix = np.zeros((N, N), dtype=np.int8)
+for pre, post in detected:
+    pi = np.where(valid_nodes == pre)[0]
+    pj = np.where(valid_nodes == post)[0]
+    if len(pi) and len(pj):
+        pearson_matrix[pi[0], pj[0]] = 1
+
+sttc_matrix = np.zeros((N, N), dtype=np.int8)
+for pre, post in detected_sttc:
+    pi = np.where(valid_nodes == pre)[0]
+    pj = np.where(valid_nodes == post)[0]
+    if len(pi) and len(pj):
+        sttc_matrix[pi[0], pj[0]] = 1
+
 np.savez("/private/tmp/func_conn_trial135_results.npz",
          pearson_f1=f1, pearson_prec=prec, pearson_rec=rec,
-         sttc_f1=f12, sttc_prec=prec2, sttc_rec=rec2)
+         pearson_conn_matrix=pearson_matrix,
+         pearson_detected_pairs=np.array(sorted(detected), dtype=np.int32),
+         pearson_tp_pairs=np.array(sorted(TP), dtype=np.int32),
+         pearson_fp_pairs=np.array(sorted(FP), dtype=np.int32),
+         pearson_fn_pairs=np.array(sorted(FN), dtype=np.int32),
+         sttc_f1=f12, sttc_prec=prec2, sttc_rec=rec2,
+         sttc_conn_matrix=sttc_matrix,
+         sttc_detected_pairs=np.array(sorted(detected_sttc), dtype=np.int32),
+         sttc_tp_pairs=np.array(sorted(TP2), dtype=np.int32),
+         sttc_fp_pairs=np.array(sorted(FP2), dtype=np.int32),
+         sttc_fn_pairs=np.array(sorted(FN2), dtype=np.int32))
 print("\nDone. Results saved.", flush=True)
