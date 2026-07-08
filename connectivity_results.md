@@ -7,7 +7,13 @@ Ben-Shalom Lab — Sabadnoor Singh, Summer 2025
 
 - **Precision:** of all the connections a method detected, what fraction were actually real (in the ground truth). Low precision = lots of false alarms.
 - **Recall:** of all the real connections that exist, what fraction did the method actually find. Low recall = missed most real connections.
-- **F1 score:** a single number combining precision and recall (their harmonic mean). Ranges 0 to 1 — 1 is perfect, 0 is complete failure. Used because a method can look good on precision alone (by barely detecting anything) or on recall alone (by flagging almost everything) — F1 punishes both extremes and only rewards methods that are good at both.
+- **F1 score:** a single number combining precision and recall (their harmonic mean):
+
+  ```
+  F1 = 2 × (Precision × Recall) / (Precision + Recall)
+  ```
+
+  Ranges 0 to 1 — 1 is perfect, 0 is complete failure. Because it's a harmonic mean rather than a simple average, F1 stays low if either precision or recall is low — a method can't get a good score just by being good at one and bad at the other. For example, Precision=0.02 and Recall=1.00 (detecting almost every pair as connected) gives F1=0.039, not 0.51 — it punishes the imbalance instead of rewarding the high recall alone.
 - **Ground truth:** the actual, known set of connections in a dataset. Only available for simulated data, where the network was built by hand — real recordings have no ground truth, so we can't compute F1 on them, only report what percentage of pairs a method flagged as connected.
 
 ---
