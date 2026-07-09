@@ -1,6 +1,11 @@
 # MEA Connectivity Validation
 
-Validation pipeline for spike connectivity inference methods (GLMCC, sCCG, DSTTC) on simulated HD-MEA data matched to CDKL5 R59X mouse recordings.
+Validation pipeline for spike connectivity inference methods on simulated HD-MEA data matched to
+CDKL5 R59X mouse recordings. GLMCC, sCCG, and DSTTC (below) are the three core, actively-used
+methods; the repo also contains 9 additional methods tried on other datasets — Jitter-CCG, Transfer
+Entropy, Lasso-VAR, Granger causality, a novel population-rate GLM, STTC/CFP with circular-shift
+surrogates, and eANN. See `validation/README.md` for the full list and `connectivity_results.md` for
+results across all of them.
 
 ---
 
@@ -49,7 +54,10 @@ python validation/glmcc_validate.py \
 
 ---
 
-## Methods
+## Core methods (this README)
+
+The three methods used in the Quickstart above. For the other 9 methods in the repo, see
+`validation/README.md`.
 
 | Method | Type | Delay Sensitivity | E/I Classification |
 |--------|------|-------------------|--------------------|
