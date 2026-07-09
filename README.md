@@ -75,7 +75,28 @@ DSTTC loops through every individual spike and compares it against every spike f
 
 ---
 
-## Simulation (`generate_brian2_hdmea_burst.py`)
+## Repo structure
+
+```
+data/         simulated spike + connectivity .npz files (output of simulation/ scripts)
+simulation/   scripts that generate synthetic ground-truth spike data
+validation/   scripts that run a connectivity method and score it against ground truth
+sci_*.py      spycon algorithm source (unmodified — see "spycon source files" below)
+```
+
+## Simulation scripts
+
+The `simulation/` folder has four generators — use `generate_brian2_hdmea_burst.py` unless you
+specifically need one of the others:
+
+| Script | Bursting? | Matched to real CDKL5 data? | When to use |
+|--------|-----------|------------------------------|-------------|
+| **generate_brian2_hdmea_burst.py** | Yes | Yes (rates, positions, burst timing) | **Default.** Closest match to real recordings — use this for benchmarking. |
+| `generate_brian2_hdmea.py` | No | Yes (positions, rates) | Clean/non-bursty version of the same network, for isolating the effect of bursting. |
+| `generate_brian2_sim.py` | Yes (from adaptation) | No — generic E/I network | Earlier prototype, kept for reference. |
+| `generate_cdkl5_sim.py` | No (Poisson, asynchronous) | Yes (rates, positions) | Sanity-check dataset — validates methods under ideal, non-bursty conditions before testing on bursty data. |
+
+### generate_brian2_hdmea_burst.py
 
 Generates a realistic HD-MEA network matched to real CDKL5 R59X statistics:
 
@@ -125,3 +146,19 @@ CDKL5 is a channelopathy that disrupts inhibitory interneuron function, directly
 3. Can quantify the E/I ratio at the single-connection level
 
 sCCG and DSTTC detect functional co-firing, which cannot distinguish a direct synapse from shared common input or burst-driven correlation.
+
+---
+
+## More methods and full results
+
+`validation/` also contains a larger set of exploratory scripts tried against other datasets
+(Lasso-VAR, Granger causality, population-rate GLM, STTC/CFP with circular-shift surrogates, eANN,
+Transfer Entropy, and more) — see `validation/README.md` for what each one does and why. For the
+complete plain-language write-up of every method, dataset, and result — including which methods
+failed and why — see `connectivity_results.md` in the repo root.
+
+## Converting data to NWB format
+
+`convert_to_nwb.py` converts spike `.npz` files (from any dataset in this repo, or real recordings)
+into [NWB](https://www.nwb.org/) format for use with NERSC and shared pipeline tooling. Run
+`python convert_to_nwb.py --help` for usage.
