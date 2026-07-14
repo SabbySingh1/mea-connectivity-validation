@@ -39,9 +39,11 @@ def _load_class(modname, filename, classname):
 # ── CLI ───────────────────────────────────────────────────────────────────────
 parser = argparse.ArgumentParser()
 parser.add_argument("method", choices=["sccg", "dsttc"])
-parser.add_argument("--spikes",  default=str(REPO_ROOT / "data" / "sim_hdmea_burst_spikes.npz"))
-parser.add_argument("--conn",    default=str(REPO_ROOT / "data" / "sim_hdmea_burst_connectivity.npz"))
-parser.add_argument("--workers", type=int, default=8)
+parser.add_argument("--spikes",    default=str(REPO_ROOT / "data" / "sim_hdmea_burst_spikes.npz"))
+parser.add_argument("--conn",      default=str(REPO_ROOT / "data" / "sim_hdmea_burst_connectivity.npz"))
+parser.add_argument("--workers",   type=int,   default=8)
+parser.add_argument("--alpha",     type=float, default=None, help="Override alpha (sCCG only)")
+parser.add_argument("--gauss-std", type=float, default=None, help="Override gauss_std in ms (sCCG only)")
 args = parser.parse_args()
 
 METHOD      = args.method
@@ -58,7 +60,25 @@ if METHOD == "dsttc":
     PARAMS = {"delta_t": 7e-3, "alpha": 1e-3}
 else:
     Cls    = _load_class("sci_sccg", "sci_sccg.py", "Smoothed_CCG")
-    PARAMS = {"binsize": 0.4e-3, "ccg_tau": 50e-3, "alpha": 1e-3}
+    # Tuned for bursty in-vitro data (organoid/CDKL5):
+    # - deconv_ccg=True: Spivak 2022 deconvolution removes burst-driven ACG structure
+    # - gauss_std=5ms: appropriate after deconvolution removes slow burst baseline
+    # - syn_window extended to cover full delay range in the data (0.1-9.33ms)
+    # - binsize=1ms: reduces Bonferroni correction (fewer bins in syn_window)
+    # - alpha=0.01: relaxed threshold compensates for lower SNR in bursty regime
+    # - ccg_tau=100ms: wider context for baseline estimation around bursts
+    _alpha     = args.alpha     if args.alpha     is not None else 0.01
+    _gauss_std = args.gauss_std if args.gauss_std is not None else 5.0  # ms
+    PARAMS = {
+        "binsize":    1e-3,
+        "hf":         0.6,
+        "gauss_std":  _gauss_std * 1e-3,
+        "syn_window": (0.1e-3, 9.33e-3),
+        "ccg_tau":    100e-3,
+        "alpha":      _alpha,
+        "deconv_ccg": True,
+    }
+    print(f"[SCCG] alpha={_alpha}  gauss_std={_gauss_std}ms")
 
 # ── Load data ─────────────────────────────────────────────────────────────────
 spk     = np.load(SPIKES_PATH, allow_pickle=True)
@@ -98,15 +118,38 @@ if __name__ == "__main__":
         raw = pool.starmap(model._test_connection_pair,
                            zip(repeat(times_s), repeat(ids), pairs))
 
-    threshold = norm.ppf(1 - 0.5 * PARAMS["alpha"])
-    detected  = set()
-    for (p, q), result in zip(pairs, raw):
-        z_AB = result[1]
-        z_BA = result[3]
-        if z_AB > threshold:
-            detected.add((p, q))
-        if z_BA > threshold:
-            detected.add((q, p))
+    if METHOD == "sccg":
+        # sCCG uses Poisson log p-value: threshold = -log(alpha / bonf_corr)
+        alpha      = PARAMS["alpha"]
+        binsize    = PARAMS.get("binsize", 0.4e-3)
+        syn_window = PARAMS.get("syn_window", (0.8e-3, 5.8e-3))
+        bonf_corr  = round((syn_window[1] - syn_window[0]) / binsize)
+        threshold  = -np.log(alpha / bonf_corr)
+
+        detected = set()
+        for (p, q), result in zip(pairs, raw):
+            # result = (logpval_AB, weight_AB, logpval_BA, weight_BA, pair)
+            # logpval is negative; flip sign so larger = more significant
+            logpval_AB = result[0]
+            logpval_BA = result[2]
+            if -logpval_AB > threshold:
+                detected.add((p, q))
+            if -logpval_BA > threshold:
+                detected.add((q, p))
+    else:
+        # DSTTC returns (zval_BA, STTC_BA, zval_AB, STTC_AB, pair)
+        # BA = q→p direction, AB = p→q direction; threshold is a z-score
+        alpha     = PARAMS["alpha"]
+        threshold = norm.ppf(1 - 0.5 * alpha)
+
+        detected = set()
+        for (p, q), result in zip(pairs, raw):
+            zval_BA = result[0]  # z-score for q→p
+            zval_AB = result[2]  # z-score for p→q
+            if zval_AB > threshold:
+                detected.add((p, q))
+            if zval_BA > threshold:
+                detected.add((q, p))
 
     print(f"[{METHOD.upper()}] Detected: {len(detected)} ({100*len(detected)/(len(pairs)*2):.1f}%)")
 

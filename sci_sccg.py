@@ -269,7 +269,11 @@ class Smoothed_CCG(SpikeConnectivityInference):
             poisson.logpmf(numpy.maximum(num_spikes_max, 0), mu=lmbda_slow)
             - numpy.log(2),
         )
-        if numpy.abs(logpfast_max) > 1e-4:
+        if logpfast_max >= 0:
+            # CDF saturated to 1.0 in float — observed count is astronomically unlikely
+            # under H0; declare maximally significant rather than producing NaN
+            logpfast_max = -700.0
+        elif numpy.abs(logpfast_max) > 1e-4:
             logpfast_max = numpy.log(-numpy.expm1(logpfast_max))
         else:
             if logpfast_max > -1e-20:
@@ -362,7 +366,9 @@ class Smoothed_CCG(SpikeConnectivityInference):
         )
         ccg_tau = self.params.get("ccg_tau", self.default_params["ccg_tau"])
         ccg_bins = int(numpy.ceil(ccg_tau / binsize))
-        ccg_bins_eff = numpy.amax([int(numpy.ceil(len(kernel) / 2)), ccg_bins])
+        # ccg_bins_eff must be > ccg_bins by at least 1 so that after valid-mode
+        # convolution + [1:-1] trim, ccg_convolved aligns with ccg in length
+        ccg_bins_eff = numpy.amax([int(numpy.ceil(len(kernel) / 2)), ccg_bins + 1])
 
         kernel_hw = len(kernel) // 2
         deconv_ccg = self.params.get("deconv_ccg", self.default_params["deconv_ccg"])

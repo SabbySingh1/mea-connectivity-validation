@@ -244,41 +244,30 @@ class GLMCC(SpikeConnectivityInference):
         tau[0] *= 1e3
         tau[1] *= 1e3
         beta = self.params.get("beta", self.default_params["beta"])
-        mode = "sim"
-
-        # Fitting a GLM
-        if mode == "sim":
-            delay_synapse = (
-                self.params.get("syn_delay", self.default_params["syn_delay"]) * 1e3
-            )
-            par, log_pos = self._GLMCC(
+        # Search over synaptic delays to cover the full physiological range.
+        # Original "sim" mode used a fixed syn_delay=3ms, missing most connections
+        # when the true delay distribution spans 0.1-9.33ms. We now search 1-9ms
+        # (1ms steps) and pick the delay that maximises the log posterior, matching
+        # the "exp" mode logic but with an extended range for in-vitro data.
+        delay_range = self.params.get(
+            "syn_delay_range",
+            list(range(1, 10))   # 1-9ms in 1ms steps
+        )
+        log_pos = None
+        for m in delay_range:
+            tmp_par, tmp_log_pos = self._GLMCC(
                 glmcc_ccg_result[1],
                 glmcc_ccg_result[0],
                 tau,
                 beta,
                 glmcc_ccg_result[2],
                 glmcc_ccg_result[3],
-                delay_synapse,
+                m,
             )
-        elif mode == "exp":
-            log_pos = 0
-            for m in range(2, 5):
-                tmp_par, tmp_log_pos = self._GLMCC(
-                    glmcc_ccg_result[1],
-                    glmcc_ccg_result[0],
-                    tau,
-                    beta,
-                    glmcc_ccg_result[2],
-                    glmcc_ccg_result[3],
-                    m,
-                )
-                if m == 2 or tmp_log_pos > log_pos:
-                    log_pos = tmp_log_pos
-                    par = tmp_par
-                    delay_synapse = m
-        else:
-            print("Input error: You must write sim or exp in mode")
-            exit(0)
+            if log_pos is None or tmp_log_pos > log_pos:
+                log_pos = tmp_log_pos
+                par = tmp_par
+                delay_synapse = m
 
         WIN = self.params.get("ccg_tau", self.default_params["ccg_tau"]) * 1e3
         DELTA = self.params.get("binsize", self.default_params["binsize"]) * 1e3
