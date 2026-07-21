@@ -1,11 +1,15 @@
 # MEA Connectivity Validation
 
-Validation pipeline for spike connectivity inference methods on simulated HD-MEA data matched to
-CDKL5 R59X mouse recordings. GLMCC, sCCG, and DSTTC (below) are the three core, actively-used
-methods; the repo also contains 9 additional methods tried on other datasets — Jitter-CCG, Transfer
-Entropy, Lasso-VAR, Granger causality, a novel population-rate GLM, STTC/CFP with circular-shift
-surrogates, and eANN. See `validation/README.md` for the full list and `connectivity_results.md` for
-results across all of them.
+Validation pipeline for spike connectivity inference methods on HD-MEA data
+matched to CDKL5 R59X mouse recordings. **GLMCC and sCCG are the two
+actively-used methods.** DSTTC was tested and dropped (F1=0.000 on bursty
+data, and its cost scales with the square of spike count — impractical
+above ~150 units). The repo also contains ~10 additional exploratory
+methods tried on other datasets — see `validation/README.md`.
+
+**Primary benchmark: `trial_157`** (419 neurons, 87,571 directed pairs,
+55,575 ground-truth synaptic connections, delays 0.10–9.33ms, 12.7× burst
+ratio). Included in `data/`.
 
 ---
 
@@ -20,17 +24,26 @@ bash setup.sh
 # 2. Activate environment
 source venv/bin/activate
 
-# 3. Generate simulation data
-python simulation/generate_brian2_hdmea_burst.py
-# → outputs data/sim_hdmea_burst_spikes.npz and data/sim_hdmea_burst_connectivity.npz
+# 3. Run the validated sCCG result on trial_157 (F1=0.460)
+python validation/dsttc_sccg_validate.py sccg \
+    --spikes data/trial_157_spikes.npz \
+    --conn   data/trial_157_connectivity.npz \
+    --alpha  0.001
 
-# 4. Run validation methods
-python validation/glmcc_validate.py
-python validation/dsttc_sccg_validate.py sccg
-python validation/dsttc_sccg_validate.py dsttc
+# 4. Run GLMCC on trial_157
+python validation/glmcc_validate.py \
+    --spikes data/trial_157_spikes.npz \
+    --conn   data/trial_157_connectivity.npz
 ```
 
-No path configuration needed — all scripts auto-detect the repo root and load spycon from the bundled source files.
+`trial_157`'s data files are already included in `data/` — no generation
+step needed. No path configuration needed either — all scripts
+auto-detect the repo root and load the bundled spycon source files.
+
+**Python version note**: use Python 3.9+. On macOS, the system `python3`
+may not have a working `pip`/`venv` — if `python3 -m venv venv` fails, try
+the Python bundled with Xcode Command Line Tools instead:
+`/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9`
 
 ---
 
@@ -54,52 +67,110 @@ python validation/glmcc_validate.py \
 
 ---
 
-## Core methods (this README)
-
-The three methods used in the Quickstart above. For the other 9 methods in the repo, see
-`validation/README.md`.
+## Core methods
 
 | Method | Type | Delay Sensitivity | E/I Classification |
 |--------|------|-------------------|--------------------|
-| **GLMCC** | Monosynaptic | 1–5ms only | Yes (signed weight) |
-| **sCCG** | Functional | Any peak in ±50ms CCG | No |
-| **DSTTC** | Functional | Any co-firing within delta_t | No |
+| **GLMCC** | Monosynaptic | Searches 1–5ms, picks best fit per pair | Yes (signed weight) |
+| **sCCG** | Functional | Any peak within `syn_window` | No |
 
-### GLMCC Parameters
+*(DSTTC — functional, any co-firing within a fixed window, no E/I output —
+was tested and dropped. See "Why DSTTC was dropped" below.)*
+
+### GLMCC parameters (validated on trial_157)
+
 ```python
-binsize   = 1ms       # CCG bin width
-ccg_tau   = 50ms      # CCG half-window (±50ms total)
-syn_delay = 3ms       # center of monosynaptic range (1–5ms)
-tau       = 10ms      # exponential kernel width (tuned from default 1ms)
-beta      = 4000      # smoothness penalty on background model
-alpha     = 0.001     # significance threshold
+binsize          = 1ms
+ccg_tau          = 100ms       # CCG half-window (±100ms total)
+tau              = [4ms, 4ms]  # exponential kernel width
+beta             = 1000        # smoothness penalty on background model
+alpha            = 0.001
+deconv_ccg       = True        # Spivak 2022 deconvolution
+syn_delay_range  = [1, 2, 3, 4, 5]  # ms — scanned per pair, best fit selected
 ```
 
-`tau=10ms` was tuned from the spycon default of `1ms` via parameter sweep — it improved TPR at 1–5ms delays significantly. All other parameters are spycon defaults.
+**Bug history**: the delay search was previously hardcoded to always test
+a single fixed value (3ms), making the intended 1–5ms grid search dead
+code — every pair was tested at exactly 3ms regardless of its true delay,
+regardless of what config was passed in. This is fixed in the current
+`glmcc_validate.py` — `syn_delay_range` is now genuinely scanned per pair.
+If you're working from an older copy of this script, confirm this list is
+actually being iterated, not just declared.
 
-### Why DSTTC has a scale limit
+### sCCG parameters (validated on trial_157)
 
-DSTTC loops through every individual spike and compares it against every spike from every other neuron. With 480 neurons and a 300-second recording this requires roughly 41 billion comparisons — it ran for over 17 hours without completing. DSTTC is only practical for datasets with fewer than ~150 units.
+```python
+binsize     = 1ms
+syn_window  = (0.1ms, 9.33ms)  # matches trial_157's actual GT delay range
+gauss_std   = 5ms
+ccg_tau     = 100ms
+deconv_ccg  = True              # removes burst-driven autocorrelation structure
+alpha       = 0.001             # best of a 0.01 / 0.005 / 0.001 sweep
+```
+
+**Bug history**: `sci_sccg.py` had two bugs fixed directly in its source
+(not settable via parameters):
+1. A NaN bug — `log(-expm1(x))` returns NaN when the Poisson CDF
+   saturates for strongly-connected pairs, and `NaN > threshold` silently
+   evaluates `False` — this was dropping the strongest true positives
+   with no error raised.
+2. An array-size mismatch (`ccg_bins_eff = ccg_bins`) that caused an
+   IndexError crash whenever `deconv_ccg=True`.
+
+The validation script itself also previously had a third bug — it
+compared the connection *weight* against a Gaussian z-score threshold,
+instead of the *log p-value* against the correct Poisson threshold
+`-log(alpha / bonf_corr)`. All three are fixed in the current
+`dsttc_sccg_validate.py` and `sci_sccg.py`.
+
+### Why DSTTC was dropped
+
+DSTTC loops through every individual spike and compares it against every
+spike from every other neuron. With 480 neurons and a 300-second
+recording this requires roughly 41 billion comparisons — it ran for over
+17 hours without completing. Combined with scoring F1=0.000 on bursty
+simulated data, it was dropped from the active method set. Only
+practical for datasets with fewer than ~150 units, if used at all.
+
+---
+
+## Results on trial_157 (419 units, 87,571 pairs, 55,575 GT connections)
+
+A naive classifier that declares every pair connected scores F1≈0.377 on
+this dataset — any method below that is worse than doing nothing.
+
+| Method | Precision | Recall | F1 | Notes |
+|--------|-----------|--------|----|----|
+| **sCCG** (α=0.001, fixed + tuned) | 0.306 | 0.926 | **0.460** | Above naive baseline; recall strong across all delay bins (89–95% TPR), precision limited by residual burst-driven false positives |
+| GLMCC (bugged, hardcoded 3ms delay) | 0.245 | 0.640 | 0.355 | Preliminary/superseded — delay-search bug now fixed, full re-run pending |
+
+Both methods' core limitation on bursty data: network-wide synchronous
+bursting creates strong co-firing correlation between every neuron pair
+regardless of true connectivity, which both methods use as their core
+detection signal — so bursting directly attacks the thing they're
+looking for.
 
 ---
 
 ## Repo structure
 
 ```
-data/         simulated spike + connectivity .npz files (output of simulation/ scripts)
+data/         simulated spike + connectivity .npz files (trial_157 included; others are output of simulation/ scripts)
 simulation/   scripts that generate synthetic ground-truth spike data
 validation/   scripts that run a connectivity method and score it against ground truth
-sci_*.py      spycon algorithm source (unmodified — see "spycon source files" below)
+sci_*.py      spycon algorithm source — sci_sccg.py and sci_glmcc.py have been
+              patched (see bug history above); others unmodified
 ```
 
 ## Simulation scripts
 
-The `simulation/` folder has four generators — use `generate_brian2_hdmea_burst.py` unless you
-specifically need one of the others:
+The `simulation/` folder has four generators for producing additional
+synthetic datasets beyond trial_157 — use `generate_brian2_hdmea_burst.py`
+unless you specifically need one of the others:
 
 | Script | Bursting? | Matched to real CDKL5 data? | When to use |
 |--------|-----------|------------------------------|-------------|
-| **generate_brian2_hdmea_burst.py** | Yes | Yes (rates, positions, burst timing) | **Default.** Closest match to real recordings — use this for benchmarking. |
+| **generate_brian2_hdmea_burst.py** | Yes | Yes (rates, positions, burst timing) | Closest match to real recordings among the local generators. |
 | `generate_brian2_hdmea.py` | No | Yes (positions, rates) | Clean/non-bursty version of the same network, for isolating the effect of bursting. |
 | `generate_brian2_sim.py` | Yes (from adaptation) | No — generic E/I network | Earlier prototype, kept for reference. |
 | `generate_cdkl5_sim.py` | No (Poisson, asynchronous) | Yes (rates, positions) | Sanity-check dataset — validates methods under ideal, non-bursty conditions before testing on bursty data. |
@@ -124,49 +195,57 @@ Generates a realistic HD-MEA network matched to real CDKL5 R59X statistics:
 - Burst dynamics: shared gate signal drives network into synchrony ~18 times per 300s, with per-neuron drive scaled to real firing rates
 - Synaptic delays: `distance / 0.3 m/s + 1ms` → naturally 1–5ms for local MEA distances
 
----
-
-## Results on burst simulation
+**Note**: results on this dataset (below) predate the sCCG/GLMCC bug
+fixes described above — they show the pre-fix behavior, not current
+validated performance. Use trial_157 (above) for current validated
+numbers.
 
 | Method | Detected | Precision | Recall | F1 | Notes |
 |--------|----------|-----------|--------|----|-------|
-| GLMCC | 2,209 | 0.021 | 0.202 | 0.038 | Burst background drives false positives |
-| sCCG | 0 | 0.000 | 0.000 | 0.000 | Burst background masks synaptic peak |
-| DSTTC | 0 | 0.000 | 0.000 | 0.000 | Same as sCCG |
-
-All methods struggle because synchronized network bursting creates strong co-firing correlations between every neuron pair, masking the true 1–5ms synaptic signal. This is the fundamental challenge of CDKL5 data where E/I imbalance drives hyper-synchronous bursting.
+| GLMCC | 2,209 | 0.021 | 0.202 | 0.038 | Pre-fix — hardcoded delay bug active |
+| sCCG | 0 | 0.000 | 0.000 | 0.000 | Pre-fix — NaN/threshold bugs active |
+| DSTTC | 0 | 0.000 | 0.000 | 0.000 | Dropped from active method set |
 
 ---
 
 ## spycon source files
 
-The algorithm source files (`sci_glmcc.py`, `sci_sccg.py`, `sci_dsttc.py`, `sci_pyinform.py`, `spycon_inference.py`, `spycon_result.py`) are included directly from the [spycon](https://github.com/christiando/spycon) package **without modification**. They are bundled here so the repo runs without a separate spycon installation. The only tuning applied was passing `tau=[10e-3, 10e-3]` as a runtime parameter to GLMCC in the validation scripts — the source files themselves are unmodified.
+The algorithm source files (`sci_glmcc.py`, `sci_sccg.py`, `sci_dsttc.py`,
+`sci_pyinform.py`, `spycon_inference.py`, `spycon_result.py`) are based on
+the [spycon](https://github.com/christiando/spycon) package, bundled here
+so the repo runs without a separate spycon installation. **`sci_sccg.py`
+and `sci_glmcc.py` have been patched** — see the bug histories under
+"Core methods" above. The other source files are unmodified.
 
-The spycon `__init__.py` is intentionally excluded because it eagerly imports `TE_IDTXL` which requires `idtxl` (difficult to build on most systems). Scripts instead load only the needed modules via `importlib`.
+The spycon `__init__.py` is intentionally excluded because it eagerly
+imports `TE_IDTXL` which requires `idtxl` (difficult to build on most
+systems). Scripts instead load only the needed modules via `importlib`.
 
 ---
 
 ## Why GLMCC for CDKL5
 
-CDKL5 is a channelopathy that disrupts inhibitory interneuron function, directly affecting E/I balance. GLMCC is the only method that:
+CDKL5 is a channelopathy that disrupts inhibitory interneuron function,
+directly affecting E/I balance. GLMCC is the only method that:
 1. Detects **direct monosynaptic connections** specifically (not indirect co-firing)
 2. Returns **signed weights** — positive = excitatory, negative = inhibitory
 3. Can quantify the E/I ratio at the single-connection level
 
-sCCG and DSTTC detect functional co-firing, which cannot distinguish a direct synapse from shared common input or burst-driven correlation.
+sCCG detects functional co-firing, which cannot distinguish a direct
+synapse from shared common input or burst-driven correlation.
 
 ---
 
-## More methods and full results
+## More methods
 
-`validation/` also contains a larger set of exploratory scripts tried against other datasets
-(Lasso-VAR, Granger causality, population-rate GLM, STTC/CFP with circular-shift surrogates, eANN,
-Transfer Entropy, and more) — see `validation/README.md` for what each one does and why. For the
-complete plain-language write-up of every method, dataset, and result — including which methods
-failed and why — see `connectivity_results.md` in the repo root.
+`validation/` also contains a larger set of exploratory scripts tried
+against other datasets (Lasso-VAR, Granger causality, population-rate
+GLM, STTC/CFP with circular-shift surrogates, eANN, Transfer Entropy, and
+more) — see `validation/README.md` for what each one does and why.
 
 ## Converting data to NWB format
 
-`convert_to_nwb.py` converts spike `.npz` files (from any dataset in this repo, or real recordings)
-into [NWB](https://www.nwb.org/) format for use with NERSC and shared pipeline tooling. Run
-`python convert_to_nwb.py --help` for usage.
+`convert_to_nwb.py` converts spike `.npz` files (from any dataset in this
+repo, or real recordings) into [NWB](https://www.nwb.org/) format for use
+with NERSC and shared pipeline tooling. Run `python convert_to_nwb.py --help`
+for usage.
